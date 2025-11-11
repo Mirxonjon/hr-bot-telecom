@@ -50,12 +50,10 @@ module.exports = {
   async POST(req, res, next) {
     try {
       const { username, password } = req.body;
-      console.log(username, password);
       const findUser = await Users.findOne({
         username,
         password,
       });
-      console.log(findUser);
       if (findUser) {
         return res.status(200).json({
           message: "User found",

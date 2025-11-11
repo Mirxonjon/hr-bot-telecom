@@ -9,7 +9,6 @@ require("dotenv").config();
 
 const Users = require("./src/model/users");
 
-require("./src/utils/cron");
 const app = express();
 
 app.use(express.json());

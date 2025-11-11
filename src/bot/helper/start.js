@@ -6,38 +6,44 @@ const {
   userKeyboardUz,
   userKeyboardRu,
 } = require("../menu/keyboard");
+const minioClient = require("../../utils/minio");
+const axios = require("axios");
+
 const start = async (msg) => {
   const chatId = msg.from.id;
 
   let checkUser = await Users.findOne({ chat_id: chatId }).lean();
 
-  if (checkUser?.language && checkUser?.phone) {
+  if (checkUser?.language && checkUser.chat_id) {
     await Users.findByIdAndUpdate(
       checkUser._id,
-      { ...checkUser, action: "menu" },
+      { ...checkUser, action: "choose_vacancy" },
       { new: true }
     );
 
     bot.sendMessage(
       chatId,
-      checkUser.language == "uz" ? `Menyuni tanlang` : `Выберите меню`,
+      checkUser.language == "uz"
+        ? `💼 Sizni qiziqtirgan vakansiyani tanlang`
+        : `💼 Выберите интересующую Вас вакансию`,
       {
         reply_markup: {
-          keyboard: checkUser.admin
-            ? checkUser.language == "uz"
-              ? adminKeyboardUZ
-              : adminKeyboardRu
-            : checkUser.language == "uz"
-            ? userKeyboardUz
-            : userKeyboardRU,
+          keyboard: [
+            [
+              checkUser.language == "uz"
+                ? `Aloqa markazi operatori`
+                : "Оператор Call-центра",
+              "🇷🇺/🇺🇿 Tilni o'zgartirish",
+            ],
+          ],
           resize_keyboard: true,
+          one_time_keyboard: true,
         },
       }
     );
   } else if (!checkUser) {
     let newUser = new Users({
       chat_id: chatId,
-      admin: false,
       createdAt: new Date(),
       action: "choose_language",
     });
@@ -82,13 +88,28 @@ const start = async (msg) => {
   }
 };
 
+const changeLanguage = async (msg) => {
+  const chatId = msg.from.id;
+
+  let user = await Users.findOne({ chat_id: chatId }).lean();
+  user.action = "choose_language";
+
+  await Users.findByIdAndUpdate(user._id, user, { new: true });
+  await bot.sendMessage(chatId, `🇷🇺/🇺🇿 Tilni o'zgartirish`, {
+    reply_markup: {
+      keyboard: [["🇷🇺  Русский", `🇺🇿 O'zbekcha`]],
+      resize_keyboard: true,
+    },
+  });
+};
+
 const chooseLanguage = async (msg) => {
   const chatId = msg.from.id;
   const text = msg.text;
+ 
   let user = await Users.findOne({ chat_id: chatId }).lean();
-  console.log("user", user);
-  if (`🇺🇿 O‘zbekcha` == text || `🇷🇺  Русский` == text) {
-    user.language = text == `🇺🇿 O‘zbekcha` ? "uz" : "ru";
+  if (`🇺🇿 O'zbekcha` == text || "🇷🇺  Русский" == text) {
+    user.language = text == `🇺🇿 O'zbekcha` ? "uz" : "ru";
     user.action = "choose_vacancy";
 
     await Users.findByIdAndUpdate(user._id, user, { new: true });
@@ -118,7 +139,7 @@ const chooseLanguage = async (msg) => {
         keyboard: [
           [
             {
-              text: `🇺🇿 O‘zbekcha`,
+              text: `🇺🇿 O'zbekcha`,
             },
             {
               text: `🇷🇺  Русский`,
@@ -135,7 +156,7 @@ const chooseVacancy = async (msg) => {
   const chatId = msg.from.id;
   const text = msg.text;
   let user = await Users.findOne({ chat_id: chatId }).lean();
-  console.log("user", user);
+
   if ("Оператор Call-центра" == text || `Aloqa markazi operatori` == text) {
     user.action = "add_name";
     user.vacancy = `operator`;
@@ -177,15 +198,22 @@ const chooseVacancy = async (msg) => {
 
 const addName = async (msg) => {
   const chatId = msg.from.id;
-  const text = msg.text;
+  const text = msg.text.trim();
   let user = await Users.findOne({ chat_id: chatId }).lean();
-  console.log("user", user);
-  const forbiddenRegex = /[.,\/\\]/g;
+
+
+  // ❌ Ruxsat berilmaydigan belgilar
+  const forbiddenRegex = /[.,\/\\!@#$%^&*()+=?<>[\]{};:]/g;
+
+  // So‘zlar sonini tekshiramiz
   const parts = text.split(" ").filter(Boolean);
+
   if (!forbiddenRegex.test(text) && parts.length >= 3) {
     user.action = "add_was_born";
     user.full_name = text;
+
     await Users.findByIdAndUpdate(user._id, user, { new: true });
+
     bot.sendMessage(
       chatId,
       user.language == "uz"
@@ -201,8 +229,8 @@ const addName = async (msg) => {
     bot.sendMessage(
       chatId,
       user.language == "uz"
-        ? `👤 Toʻliq ismingizni kiriting (masalan: Mahmudov Alisher Baxodir o'g'li)`
-        : `👤Введите ФИО  (пример: Иванов Иван Иванович)`,
+        ? `❌ Noto‘g‘ri kiritildi!\n\n👤 Toʻliq ismingizni kiriting (masalan: Mahmudov Alisher Baxodir o'g'li)\n\nDiqqat! Ismda quyidagi belgilardan foydalanmang: . , ! @ # $ % ...`
+        : `❌ Неверный ввод!\n\n👤 Введите ФИО (пример: Иванов Иван Иванович)\n\nНе используйте символы: . , ! @ # $ % ...`,
       {
         reply_markup: {
           remove_keyboard: true,
@@ -216,7 +244,7 @@ const addWasBorn = async (msg) => {
   const chatId = msg.from.id;
   const text = msg.text.trim();
   let user = await Users.findOne({ chat_id: chatId }).lean();
-  console.log("user", user);
+
 
   // 🎯 dd.mm.yyyy format tekshiruv
   const birthRegex =
@@ -253,11 +281,11 @@ const addWasBorn = async (msg) => {
       }
     );
   } else {
-    bot.sendMessage(
+    return bot.sendMessage(
       chatId,
       user.language == "uz"
-        ? `📅 Tug'ilgan kuningizni kiriting (masalan, dd.mm.yyyy)`
-        : "📅 Укажите дату своего рождения (пример: дд.мм.гггг)",
+        ? `❌ Noto‘g‘ri format!\n\n📅 Tug‘ilgan kuningizni quyidagi formatda kiriting:\n👉 dd.mm.yyyy\n\nMasalan: 15.03.1999`
+        : `❌ Неверный формат!\n\n📅 Укажите дату рождения в формате:\n👉 дд.мм.гггг\n\nНапример: 15.03.1999`,
       {
         reply_markup: {
           remove_keyboard: true,
@@ -272,12 +300,11 @@ const requestContact = async (msg) => {
   let phonetext = msg.text;
   let user = await Users.findOne({ chat_id: chatId }).lean();
   const username = msg?.from?.username;
-  console.log(phonetext);
+
   if (msg?.contact?.phone_number || phonetext) {
     if (msg?.contact?.phone_number) {
       phonetext = `+${+msg?.contact?.phone_number}`;
     }
-    console.log(phonetext, msg?.contact?.phone_number, "2 chi");
 
     if (
       phonetext?.includes("+99") &&
@@ -304,8 +331,8 @@ const requestContact = async (msg) => {
       return bot.sendMessage(
         chatId,
         user.language == "uz"
-          ? `📱 Telefon raqamingizni kiriting (masalan: +998XXXXXXXXX)`
-          : `📱 Укажите Ваш контактный номер телефона (пример: +998XXXXXXXXX)`,
+          ? `❌ Noto‘g‘ri format!\n\n📱 Telefon raqamingizni quyidagi formatda kiriting:\n👉 +998XXXXXXXXX\n\nMisol: +998901234567`
+          : `❌ Неверный формат!\n\n📱 Укажите номер телефона в формате:\n👉 +998XXXXXXXXX\n\nНапример: +998901234567`,
         {
           reply_markup: {
             keyboard: [
@@ -329,8 +356,8 @@ const requestContact = async (msg) => {
     return bot.sendMessage(
       chatId,
       user.language == "uz"
-        ? `📱 Telefon raqamingizni kiriting (masalan: +998XXXXXXXXX)`
-        : `📱 Укажите Ваш контактный номер телефона (пример: +998XXXXXXXXX)`,
+        ? `❌ Noto‘g‘ri format!\n\n📱 Telefon raqamingizni quyidagi formatda kiriting:\n👉 +998XXXXXXXXX\n\nMisol: +998901234567`
+        : `❌ Неверный формат!\n\n📱 Укажите номер телефона в формате:\n👉 +998XXXXXXXXX\n\nНапример: +998901234567`,
       {
         reply_markup: {
           keyboard: [
@@ -356,39 +383,53 @@ const addAddress = async (msg) => {
   const chatId = msg.from.id;
   const text = msg.text.trim();
   let user = await Users.findOne({ chat_id: chatId }).lean();
-  console.log("user", user);
 
-  user.action = "ask_student";
-  user.was_born = text;
+  if (text.length > 15) {
+    user.action = "ask_student";
+    user.address = text;
 
-  await Users.findByIdAndUpdate(user._id, user, { new: true });
+    await Users.findByIdAndUpdate(user._id, user, { new: true });
 
-  return bot.sendMessage(
-    chatId,
-    user.language == "uz" ? `Siz talabamisiz?` : "👨‍🎓Вы являетесь студентом?",
-    {
-      reply_markup: {
-        inline_keyboard: [
-          [
-            {
-              text: "✅ДА",
-              callback_data: `student_yes`,
-            },
-            {
-              text: "❌НЕТ",
-              callback_data: `student_no`,
-            },
+    return bot.sendMessage(
+      chatId,
+      user.language == "uz" ? `Siz talabamisiz?` : "👨‍🎓Вы являетесь студентом?",
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: "✅ДА",
+                callback_data: `student_yes`,
+              },
+              {
+                text: "❌НЕТ",
+                callback_data: `student_no`,
+              },
+            ],
           ],
-        ],
-        one_time_keyboard: true,
-      },
-    }
-  );
+          one_time_keyboard: true,
+        },
+      }
+    );
+  } else {
+    return bot.sendMessage(
+      chatId,
+      user.language == "uz"
+        ? `❌ Noto‘g‘ri!\n\n🏠 Yashash manzilingizni to‘liq kiriting:\n👉 shahar, tuman, ko‘cha/blok\n\nMisol: Toshkent shahar, Chilonzor tumani, 12-kvartal, 45-uy`
+        : `❌ Неверно!\n\n🏠 Укажите полный адрес проживания:\n👉 город, район, улица/квартал\n\nНапример: Ташкент, Чиланзар, 12-квартал, дом 45`,
+      {
+        reply_markup: {
+          remove_keyboard: true,
+        },
+      }
+    );
+    x;
+  }
 };
 
 const askStudent = async (query) => {
   const chatId = query.from.id;
-  const callback = query.data; // student::yes  yoki student::no
+  const callback = query.data;
 
   let user = await Users.findOne({ chat_id: chatId });
 
@@ -645,42 +686,192 @@ const askExperince = async (query) => {
 };
 
 const addPhoto = async (msg) => {
-  // const chatId = msg.from.id;
-  // const text = msg.text.trim();
-  // let user = await Users.findOne({ chat_id: chatId }).lean();
-  // console.log("user", user);
+  const chatId = msg.from.id;
 
-  // user.action = "ask_student";
-  // user.was_born = text;
+  let findUser = await Users.findOne({ chat_id: chatId }).lean();
 
-  // await Users.findByIdAndUpdate(user._id, user, { new: true });
+  if (!msg?.photo?.length) {
+    return bot.sendMessage(
+      chatId,
+      findUser.language == "uz" ? "❌ Rasm yuboring!" : "❌ Отправьте фото!"
+    );
+  }
 
-  // return bot.sendMessage(
-  //   chatId,
-  //   user.language == "uz" ? `Siz talabamisiz?` : "👨‍🎓Вы являетесь студентом?",
-  //   {
-  //     reply_markup: {
-  //       inline_keyboard: [
-  //         [
-  //           {
-  //             text: "✅ДА",
-  //             callback_data: `student_yes`,
-  //           },
-  //           {
-  //             text: "❌НЕТ",
-  //             callback_data: `student_no`,
-  //           },
-  //         ],
-  //       ],
-  //       one_time_keyboard: true,
-  //     },
-  //   }
-  // );
+  const fileId = msg.photo[msg.photo.length - 1].file_id;
+  const file = await bot.getFile(fileId);
+  const fileUrl = `https://api.telegram.org/file/bot${process.env.TOKEN}/${file.file_path}`;
+
+  const res = await axios({ url: fileUrl, responseType: "arraybuffer" });
+
+  const fileName = `user_${chatId}_${Date.now()}.jpg`;
+  const BUCKET = process.env.MINIO_PUBLIC_BUCKET;
+
+  await minioClient.putObject(BUCKET, fileName, res.data);
+
+  const publicUrl = `${process.env.MINIO_URL}/${BUCKET}/${fileName}`;
+
+  findUser.image = publicUrl;
+  findUser.action = "preview_data";
+  let object = {
+    beginner: "Начальный",
+    middle: "Средний",
+    advanced: "Продвинутый",
+    fluent: "Свободный",
+    "0-6m": "0-6 мес",
+    "6m-1y": "6 мес-1 год",
+    "1y-3y": "1 год-3 год",
+    "3y+": "3 год+",
+  };
+  await Users.findByIdAndUpdate(
+    findUser._id,
+    {
+      $set: {
+        photo: publicUrl,
+        action: "preview_data",
+      },
+    },
+    { new: true }
+  );
+
+  await bot.sendMessage(
+    msg.chat.id,
+    `
+<b>${
+      findUser.language === "uz"
+        ? "Ma'lumotlaringizni oldindan ko'rish:"
+        : "Предварительный просмотр ваших данных:"
+    }</b>
+
+
+${
+  findUser.language === "uz"
+    ? "<b>💼 Vakansiya nomi:</b>"
+    : "<b>💼 Название вакансии:</b>"
+} ${findUser.vacancy}
+${findUser.language === "uz" ? "<b>📄 F.I.Sh:</b>" : "<b>📄 Ф.И.О:</b>"} ${
+      findUser.full_name
+    }
+${
+  findUser.language === "uz"
+    ? "<b>📅 Tug'ilgan sana:</b>"
+    : "<b>📅 Дата рождения:</b>"
+} ${findUser.was_born}
+${findUser.language === "uz" ? "<b>📱 Aloqa:</b>" : "<b>📱 Контакт:</b>"} ${
+      findUser.phone
+    }
+${findUser.language === "uz" ? "<b>📍 Manzil:</b>" : "<b>📍 Адрес:</b>"} ${
+      findUser.address
+    }
+${
+  findUser.language === "uz"
+    ? "<b>🎓 Talabamisiz?:</b>"
+    : "<b>🎓 Вы студент?:</b>"
+} ${
+      findUser.IsStudent
+        ? findUser.language === "uz"
+          ? "Ha"
+          : "Да"
+        : findUser.language === "uz"
+        ? "Yo'q"
+        : "Нет"
+    }
+
+${
+  findUser.language === "uz"
+    ? "<b>🇺🇿 O'zbek tili darajasi:</b>"
+    : "<b>🇺🇿 Уровень узбекского языка:</b>"
+} ${object[findUser.language_uz]}
+${
+  findUser.language === "uz"
+    ? "<b>🇷🇺 Rus tili darajasi:</b>"
+    : "<b>🇷🇺 Уровень русского языка:</b>"
+} ${object[findUser.language_ru]}
+${
+  findUser.language === "uz"
+    ? "<b>🇺🇸 Ingliz tili darajasi:</b>"
+    : "<b>🇺🇸 Уровень английского языка:</b>"
+} ${object[findUser.language_en]}
+
+${
+  findUser.language === "uz"
+    ? "<b>💻 Kompyuter bilish darajasi:</b>"
+    : "<b>💻 Уровень знания компьютера:</b>"
+} ${object[findUser.computer]}
+${
+  findUser.language === "uz"
+    ? "<b>💼 Ish tajribangiz:</b>"
+    : "<b>💼 Опыт работы:</b>"
+} ${object[findUser.experience]}
+
+
+${
+  findUser.language === "uz"
+    ? `Barcha ma'lumotlar to'g'rimi? Tasdiqlash uchun <b>"Yuborish"</b> tugmasini bosing`
+    : `Все данные верны? Для подтверждения нажмите кнопку <b>"Отправить"</b>`
+}
+  `,
+    {
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [[findUser.language === "uz" ? "Yuborish" : "Отправить"]],
+        one_time_keyboard: true,
+        resize_keyboard: true,
+      },
+    }
+  );
 };
 
+const saveDate = async (msg) => {
+  const chatId = msg.from.id;
+  const text = msg.text.trim();
+  let user = await Users.findOne({ chat_id: chatId }).lean();
 
+  if (text == "Yuborish" || text == "Отправить") {
+    user.action = "choose_vacancy";
+    user.was_born = text;
 
+    await Users.findByIdAndUpdate(user._id, user, { new: true });
 
+    return bot.sendMessage(
+      chatId,
+      user.language == "uz"
+        ? `Kompaniyamizga bildirgan qiziqishingiz uchun tashakkur. Sizga shuni ma’lum qilamizki, ushbu lavozimga arizangiz muvaffaqiyatli qabul qilindi va ko‘rib chiqish jarayonida. ✅
+
+Agar bizning talablarimizga javob bersangiz, Siz bilan suhbat yoki qo‘shimcha ma’lumot olish uchun bog‘lanamiz.`
+        : `Спасибо за проявленный интерес к нашей компании. Мы хотим сообщить вам, что ваша заявка на вакансию успешно получена и находится в стадии рассмотрения. ✅
+
+Если ваш профиль соответствует нашим ожиданиям, мы свяжемся с вами для проведения собеседования или для дополнительной информации.`,
+      {
+        reply_markup: {
+          keyboard: [
+            [
+              user.language == "uz"
+                ? `Aloqa markazi operatori`
+                : "Оператор Call-центра",
+              "🇷🇺/🇺🇿 Tilni o'zgartirish",
+            ],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      }
+    );
+  }
+  // else {
+  //   return bot.sendMessage(
+  //     chatId,
+  //     user.language == "uz"
+  //       ? `❌ Noto‘g‘ri!\n\n🏠 Yashash manzilingizni to‘liq kiriting:\n👉 shahar, tuman, ko‘cha/blok\n\nMisol: Toshkent shahar, Chilonzor tumani, 12-kvartal, 45-uy`
+  //       : `❌ Неверно!\n\n🏠 Укажите полный адрес проживания:\n👉 город, район, улица/квартал\n\nНапример: Ташкент, Чиланзар, 12-квартал, дом 45`,
+  //     {
+  //       reply_markup: {
+  //         remove_keyboard: true,
+  //       },
+  //     }
+  //   );
+
+  // }
+};
 
 const logOut = async (msg) => {
   const chatId = msg.chat.id;
@@ -720,6 +911,8 @@ module.exports = {
   askComputer,
   askExperince,
   addPhoto,
+  saveDate,
+  changeLanguage,
   logOut,
   addAddress,
 };

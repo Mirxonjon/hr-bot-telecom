@@ -1,9 +1,6 @@
 const Users = require("../model/users");
 const { bot } = require("./bot");
-const {
-  chooseSubscription,
-  handleSubscriptionApproval,
-} = require("./helper/sing-up-group");
+
 const {
   askStudent,
   askLangUz,

@@ -6,39 +6,6 @@ const Users = new Schema({
   username: String,
   password: String,
   language: String,
-  phone: String,
-  cardNumber: {
-    type: String,
-    default: "1234 5678 9012 3456",
-  },
-  admin: {
-    type: Boolean,
-    default: false, // admin bormi
-  },
-  access: {
-    type: Boolean,
-    default: false, // kanalga kirish huquqi bormi
-  },
-  join: {
-    type: Boolean,
-    default: false, // kanalga kirish huquqi bormi
-  },
-  plan: {
-    type: String,
-  },
-  subscriptionStart: {
-    type: Date,
-  },
-  subscriptionEnd: {
-    type: Date,
-  },
-  totalPaid: {
-    type: Number,
-    default: 0,
-  },
-  updateAt: Date,
-  createdAt: Date,
-
   full_name: String,
   was_born: String,
   phone: String,
@@ -52,6 +19,8 @@ const Users = new Schema({
   experience: String,
   resume: String,
   vacancy: String,
+  updateAt: Date,
+  createdAt: Date,
 });
 
 module.exports = model("Users", Users);
