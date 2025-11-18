@@ -106,7 +106,7 @@ const changeLanguage = async (msg) => {
 const chooseLanguage = async (msg) => {
   const chatId = msg.from.id;
   const text = msg.text;
- 
+
   let user = await Users.findOne({ chat_id: chatId }).lean();
   if (`🇺🇿 O'zbekcha` == text || "🇷🇺  Русский" == text) {
     user.language = text == `🇺🇿 O'zbekcha` ? "uz" : "ru";
@@ -201,14 +201,13 @@ const addName = async (msg) => {
   const text = msg.text.trim();
   let user = await Users.findOne({ chat_id: chatId }).lean();
 
-
   // ❌ Ruxsat berilmaydigan belgilar
-  const forbiddenRegex = /[.,\/\\!@#$%^&*()+=?<>[\]{};:]/g;
+  const forbiddenRegex = /[0-9.,\/\\!@#$%^&*()+=?<>[\]{};:]/g;
 
   // So‘zlar sonini tekshiramiz
   const parts = text.split(" ").filter(Boolean);
 
-  if (!forbiddenRegex.test(text) && parts.length >= 3) {
+  if (!forbiddenRegex.test(text) && parts.length >= 3 && text.length >= 10) {
     user.action = "add_was_born";
     user.full_name = text;
 
@@ -244,7 +243,6 @@ const addWasBorn = async (msg) => {
   const chatId = msg.from.id;
   const text = msg.text.trim();
   let user = await Users.findOne({ chat_id: chatId }).lean();
-
 
   // 🎯 dd.mm.yyyy format tekshiruv
   const birthRegex =
@@ -398,11 +396,11 @@ const addAddress = async (msg) => {
           inline_keyboard: [
             [
               {
-                text: "✅ДА",
+                text: user.language == "uz" ? "✅HA" : "✅ДА",
                 callback_data: `student_yes`,
               },
               {
-                text: "❌НЕТ",
+                text: user.language == "uz" ? "❌YO'Q" : "❌НЕТ",
                 callback_data: `student_no`,
               },
             ],
@@ -440,7 +438,7 @@ const askStudent = async (query) => {
 
   await bot.sendMessage(
     chatId,
-    user.lang == "uz"
+    user.language == "uz"
       ? `🇺🇿 O'zbek tilini bilish darajangiz qanday?`
       : "🇺🇿 Какой у вас уровень узбекского языка?",
     {
@@ -448,21 +446,21 @@ const askStudent = async (query) => {
         inline_keyboard: [
           [
             {
-              text: "1: Начальный",
+              text: user.language == "uz" ? "1: Boshlang‘ich" : "1: Начальный",
               callback_data: `langUz_beginner`,
             },
             {
-              text: "2: Средний",
+              text: user.language == "uz" ? "2: O‘rtacha" : "2: Средний",
               callback_data: `langUz_middle`,
             },
           ],
           [
             {
-              text: "3: Продвинутый",
+              text: user.language == "uz" ? "3: Yuqori" : "3: Продвинутый",
               callback_data: `langUz_advanced`,
             },
             {
-              text: "4: Свободный",
+              text: user.language == "uz" ? "4: Erkin" : "4: Свободный",
               callback_data: `langUz_fluent`,
             },
           ],
@@ -481,13 +479,114 @@ const askLangUz = async (query) => {
   let user = await Users.findOne({ chat_id: chatId });
 
   const [, value] = callback.split("_");
-  user.language_uz = value;
+  if (value == "advanced" || value == "fluent") {
+    user.language_uz = value;
+    user.action = "ask_uzbek_audio";
+    await user.save();
+    const textUz = `
+🎤 Iltimos, quyidagi matnni oddiy  audio ko‘rinishida o‘qib yuboring:
+
+“Bugun hukumat yangi loyihani taqdim etdi. Loyiha aholiga ko‘proq imkoniyat yaratish va xizmatlar sifatini oshirishga qaratilgan. Mutaxassislar bu tashabbus iqtisodiy rivojlanishga yordam berishini ta’kidlashdi.”
+`;
+    const textRu = `
+🎤 Пожалуйста, прочитайте и отправьте озвучку следующего текста в обычном формате аудио:
+
+“Bugun hukumat yangi loyihani taqdim etdi. Loyiha aholiga ko‘proq imkoniyat yaratish va xizmatlar sifatini oshirishga qaratilgan. Mutaxassislar bu tashabbus iqtisodiy rivojlanishga yordam berishini ta’kidlashdi.”
+`;
+
+    return bot.sendMessage(chatId, user.language === "uz" ? textUz : textRu, {
+      reply_markup: {
+        remove_keyboard: true,
+      },
+    });
+  } else {
+    user.language_uz = value;
+    user.action = "ask_language_ru";
+    await user.save();
+
+    await bot.sendMessage(
+      chatId,
+      user.language == "uz"
+        ? `🇷🇺 Rus tilini bilish darajangiz qanday?`
+        : "🇷🇺 Какой у вас уровень русского языка?",
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text:
+                  user.language == "uz" ? "1: Boshlang‘ich" : "1: Начальный",
+                callback_data: `langRu_beginner`,
+              },
+              {
+                text: user.language == "uz" ? "2: O‘rtacha" : "2: Средний",
+                callback_data: `langRu_middle`,
+              },
+            ],
+            [
+              {
+                text: user.language == "uz" ? "3: Yuqori" : "3: Продвинутый",
+                callback_data: `langRu_advanced`,
+              },
+              {
+                text: user.language == "uz" ? "4: Erkin" : "4: Свободный",
+                callback_data: `langRu_fluent`,
+              },
+            ],
+          ],
+          one_time_keyboard: true,
+          resize_keyboard: true,
+        },
+      }
+    );
+  }
+};
+
+const addUzbekAudio = async (msg) => {
+  const chatId = msg.from.id;
+
+  let user = await Users.findOne({ chat_id: chatId });
+  if (!user) return;
+
+  // ❌ Audio kelmagan bo'lsa
+  if (!msg.voice) {
+    return bot.sendMessage(
+      chatId,
+      user.language === "uz"
+        ? "❌ Iltimos, audio yuboring!"
+        : "❌ Пожалуйста, отправьте аудио!"
+    );
+  }
+
+  // 🔥 1) Telegramdan fayl olish
+  const fileId = msg.voice.file_id;
+  const file = await bot.getFile(fileId);
+
+  const fileUrl = `https://api.telegram.org/file/bot${process.env.TOKEN}/${file.file_path}`;
+
+  // 🔥 2) Faylni yuklab olish (buffer)
+  const audioBuffer = await axios({
+    url: fileUrl,
+    responseType: "arraybuffer",
+  }).then((res) => res.data);
+
+  // 🔥 3) MinIO ga yuklash
+  const fileName = `uzbek_audio_${chatId}_${Date.now()}.ogg`;
+  const BUCKET = process.env.MINIO_PUBLIC_BUCKET_AUDIO;
+
+  await minioClient.putObject(BUCKET, fileName, audioBuffer);
+
+  // 🔥 4) Public URL
+  const publicUrl = `${process.env.MINIO_URL}/${BUCKET}/${fileName}`;
+
+  // 🔥 5) DB ga saqlash
+  user.uzbek_audio = publicUrl;
   user.action = "ask_language_ru";
   await user.save();
 
   await bot.sendMessage(
     chatId,
-    user.lang == "uz"
+    user.language == "uz"
       ? `🇷🇺 Rus tilini bilish darajangiz qanday?`
       : "🇷🇺 Какой у вас уровень русского языка?",
     {
@@ -495,21 +594,21 @@ const askLangUz = async (query) => {
         inline_keyboard: [
           [
             {
-              text: "1: Начальный",
+              text: user.language == "uz" ? "1: Boshlang‘ich" : "1: Начальный",
               callback_data: `langRu_beginner`,
             },
             {
-              text: "2: Средний",
+              text: user.language == "uz" ? "2: O‘rtacha" : "2: Средний",
               callback_data: `langRu_middle`,
             },
           ],
           [
             {
-              text: "3: Продвинутый",
+              text: user.language == "uz" ? "3: Yuqori" : "3: Продвинутый",
               callback_data: `langRu_advanced`,
             },
             {
-              text: "4: Свободный",
+              text: user.language == "uz" ? "4: Erkin" : "4: Свободный",
               callback_data: `langRu_fluent`,
             },
           ],
@@ -528,13 +627,114 @@ const askLangRu = async (query) => {
   let user = await Users.findOne({ chat_id: chatId });
 
   const [, value] = callback.split("_");
-  user.language_ru = value;
+  if (value == "advanced" || value == "fluent") {
+    user.language_uz = value;
+    user.action = "ask_russian_audio";
+    await user.save();
+    const textUz = `
+🎤 Iltimos, quyidagi matnni oddiy  audio ko‘rinishida o‘qib yuboring:
+
+“Сегодня правительство представило новый проект. Он направлен на расширение возможностей для населения и повышение качества государственных услуг. Специалисты отметили, что инициатива будет способствовать экономическому развитию.”
+`;
+    const textRu = `
+🎤 Пожалуйста, прочитайте и отправьте озвучку следующего текста в обычном формате аудио:
+
+“Сегодня правительство представило новый проект. Он направлен на расширение возможностей для населения и повышение качества государственных услуг. Специалисты отметили, что инициатива будет способствовать экономическому развитию.”
+`;
+
+    return bot.sendMessage(chatId, user.language === "uz" ? textUz : textRu, {
+      reply_markup: {
+        remove_keyboard: true,
+      },
+    });
+  } else {
+    user.language_ru = value;
+    user.action = "ask_language_en";
+    await user.save();
+
+    await bot.sendMessage(
+      chatId,
+      user.language == "uz"
+        ? `🇺🇸 Ingliz tilini bilish darajangiz qanday?`
+        : "🇺🇸 Какой у вас уровень англиский языка?",
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text:
+                  user.language == "uz" ? "1: Boshlang‘ich" : "1: Начальный",
+                callback_data: `langEn_beginner`,
+              },
+              {
+                text: user.language == "uz" ? "2: O‘rtacha" : "2: Средний",
+                callback_data: `langEn_middle`,
+              },
+            ],
+            [
+              {
+                text: user.language == "uz" ? "3: Yuqori" : "3: Продвинутый",
+                callback_data: `langEn_advanced`,
+              },
+              {
+                text: user.language == "uz" ? "4: Erkin" : "4: Свободный",
+                callback_data: `langEn_fluent`,
+              },
+            ],
+          ],
+          one_time_keyboard: true,
+          resize_keyboard: true,
+        },
+      }
+    );
+  }
+};
+
+const addRussianAudio = async (msg) => {
+  const chatId = msg.from.id;
+
+  let user = await Users.findOne({ chat_id: chatId });
+  if (!user) return;
+
+  // ❌ Audio kelmagan bo'lsa
+  if (!msg.voice) {
+    return bot.sendMessage(
+      chatId,
+      user.language === "uz"
+        ? "❌ Iltimos, audio yuboring!"
+        : "❌ Пожалуйста, отправьте аудио!"
+    );
+  }
+
+  // 🔥 1) Telegramdan fayl olish
+  const fileId = msg.voice.file_id;
+  const file = await bot.getFile(fileId);
+
+  const fileUrl = `https://api.telegram.org/file/bot${process.env.TOKEN}/${file.file_path}`;
+
+  // 🔥 2) Faylni yuklab olish (buffer)
+  const audioBuffer = await axios({
+    url: fileUrl,
+    responseType: "arraybuffer",
+  }).then((res) => res.data);
+
+  // 🔥 3) MinIO ga yuklash
+  const fileName = `russian_audio_${chatId}_${Date.now()}.ogg`;
+  const BUCKET = process.env.MINIO_PUBLIC_BUCKET_AUDIO;
+
+  await minioClient.putObject(BUCKET, fileName, audioBuffer);
+
+  // 🔥 4) Public URL
+  const publicUrl = `${process.env.MINIO_URL}/${BUCKET}/${fileName}`;
+
+  // 🔥 5) DB ga saqlash
+  user.russian_audio = publicUrl;
   user.action = "ask_language_en";
   await user.save();
 
   await bot.sendMessage(
     chatId,
-    user.lang == "uz"
+    user.language == "uz"
       ? `🇺🇸 Ingliz tilini bilish darajangiz qanday?`
       : "🇺🇸 Какой у вас уровень англиский языка?",
     {
@@ -542,21 +742,21 @@ const askLangRu = async (query) => {
         inline_keyboard: [
           [
             {
-              text: "1: Начальный",
+              text: user.language == "uz" ? "1: Boshlang‘ich" : "1: Начальный",
               callback_data: `langEn_beginner`,
             },
             {
-              text: "2: Средний",
+              text: user.language == "uz" ? "2: O‘rtacha" : "2: Средний",
               callback_data: `langEn_middle`,
             },
           ],
           [
             {
-              text: "3: Продвинутый",
+              text: user.language == "uz" ? "3: Yuqori" : "3: Продвинутый",
               callback_data: `langEn_advanced`,
             },
             {
-              text: "4: Свободный",
+              text: user.language == "uz" ? "4: Erkin" : "4: Свободный",
               callback_data: `langEn_fluent`,
             },
           ],
@@ -575,13 +775,116 @@ const askLangEn = async (query) => {
   let user = await Users.findOne({ chat_id: chatId });
 
   const [, value] = callback.split("_");
-  user.language_en = value;
+
+  if (value == "advanced" || value == "fluent") {
+    user.language_uz = value;
+    user.action = "ask_english_audio";
+    await user.save();
+    const textUz = `
+🎤 Iltimos, quyidagi matnni oddiy  audio ko‘rinishida o‘qib yuboring:
+
+“Today the government introduced a new project. The initiative aims to create more opportunities for citizens and improve the quality of public services. Experts noted that this effort will support economic development.”
+`;
+    const textRu = `
+🎤 Пожалуйста, прочитайте и отправьте озвучку следующего текста в обычном формате аудио:
+
+“Today the government introduced a new project. The initiative aims to create more opportunities for citizens and improve the quality of public services. Experts noted that this effort will support economic development.”
+`;
+
+    return bot.sendMessage(chatId, user.language === "uz" ? textUz : textRu, {
+      reply_markup: {
+        remove_keyboard: true,
+      },
+    });
+  } else {
+    user.language_en = value;
+    user.action = "ask_computer";
+    await user.save();
+
+    await bot.sendMessage(
+      chatId,
+      user.language == "uz"
+        ? `💻 Kompyuterni bilish darajangiz qanday?`
+        : "💻 Какой у вас уровень знания компьютера?",
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text:
+                  user.language == "uz" ? "1: Boshlang‘ich" : "1: Начальный",
+                callback_data: `comp_beginner`,
+              },
+              {
+                text: user.language == "uz" ? "2: O‘rtacha" : "2: Средний",
+                callback_data: `comp_middle`,
+              },
+            ],
+            [
+              {
+                text: user.language == "uz" ? "3: Yuqori" : "3: Продвинутый",
+                callback_data: `comp_advanced`,
+              },
+              {
+                text: user.language == "uz" ? "4: Erkin" : "4: Свободный",
+                callback_data: `comp_fluent`,
+              },
+            ],
+          ],
+          one_time_keyboard: true,
+          resize_keyboard: true,
+        },
+      }
+    );
+  }
+};
+
+const addEnglishAudio = async (msg) => {
+  const chatId = msg.from.id;
+
+  let user = await Users.findOne({ chat_id: chatId });
+  if (!user) return;
+  console.log("user found for english audio");
+
+  // ❌ Audio kelmagan bo'lsa
+  if (!msg.voice) {
+    return bot.sendMessage(
+      chatId,
+      user.language === "uz"
+        ? "❌ Iltimos, audio yuboring!"
+        : "❌ Пожалуйста, отправьте аудио!"
+    );
+  }
+
+  // 🔥 1) Telegramdan fayl olish
+  const fileId = msg.voice.file_id;
+  const file = await bot.getFile(fileId);
+
+  const fileUrl = `https://api.telegram.org/file/bot${process.env.TOKEN}/${file.file_path}`;
+
+  // 🔥 2) Faylni yuklab olish (buffer)
+  const audioBuffer = await axios({
+    url: fileUrl,
+    responseType: "arraybuffer",
+  }).then((res) => res.data);
+
+  // 🔥 3) MinIO ga yuklash
+  const fileName = `english_audio_${chatId}_${Date.now()}.ogg`;
+  const BUCKET = process.env.MINIO_PUBLIC_BUCKET_AUDIO;
+
+  await minioClient.putObject(BUCKET, fileName, audioBuffer);
+
+  // 🔥 4) Public URL
+  const publicUrl = `${process.env.MINIO_URL}/${BUCKET}/${fileName}`;
+
+  // 🔥 5) DB ga saqlash
+  user.english_audio = publicUrl;
   user.action = "ask_computer";
   await user.save();
 
   await bot.sendMessage(
     chatId,
-    user.lang == "uz"
+    user.language == "uz"
       ? `💻 Kompyuterni bilish darajangiz qanday?`
       : "💻 Какой у вас уровень знания компьютера?",
     {
@@ -589,21 +892,21 @@ const askLangEn = async (query) => {
         inline_keyboard: [
           [
             {
-              text: "1: Начальный",
+              text: user.language == "uz" ? "1: Boshlang‘ich" : "1: Начальный",
               callback_data: `comp_beginner`,
             },
             {
-              text: "2: Средний",
+              text: user.language == "uz" ? "2: O‘rtacha" : "2: Средний",
               callback_data: `comp_middle`,
             },
           ],
           [
             {
-              text: "3: Продвинутый",
+              text: user.language == "uz" ? "3: Yuqori" : "3: Продвинутый",
               callback_data: `comp_advanced`,
             },
             {
-              text: "4: Свободный",
+              text: user.language == "uz" ? "4: Erkin" : "4: Свободный",
               callback_data: `comp_fluent`,
             },
           ],
@@ -628,7 +931,7 @@ const askComputer = async (query) => {
 
   await bot.sendMessage(
     chatId,
-    user.lang == "uz"
+    user.language == "uz"
       ? `💼 Sizning ish tajribangiz qanday?`
       : "💼 Ваш опыт работы?",
     {
@@ -636,21 +939,21 @@ const askComputer = async (query) => {
         inline_keyboard: [
           [
             {
-              text: "0-6мес",
+              text: user.language == "uz" ? "0-6oy" : "0-6мес",
               callback_data: `experience_0-6m`,
             },
             {
-              text: "6мес-1год",
+              text: user.language == "uz" ? "6oy-1yil" : "6мес-1год",
               callback_data: `experience_6m-1y`,
             },
           ],
           [
             {
-              text: "1год-3год",
+              text: user.language == "uz" ? "1yil-3yil" : "1год-3год",
               callback_data: `experience_1y-3y`,
             },
             {
-              text: "3год+",
+              text: user.language == "uz" ? "3yil+" : "3год+",
               callback_data: `experience_3y+`,
             },
           ],
@@ -674,7 +977,7 @@ const askExperince = async (query) => {
 
   await bot.sendMessage(
     chatId,
-    user.lang == "uz"
+    user.language_en == "uz"
       ? "🤵/🤵‍♀️ Suratingizni yuboring (telefoningizda selfi olishingiz mumkin)"
       : "🤵/🤵‍♀️ Отправьте Ваше фото (можно селфи с телефона)",
     {
@@ -711,22 +1014,24 @@ const addPhoto = async (msg) => {
   const publicUrl = `${process.env.MINIO_URL}/${BUCKET}/${fileName}`;
 
   findUser.image = publicUrl;
+
   findUser.action = "preview_data";
   let object = {
-    beginner: "Начальный",
-    middle: "Средний",
-    advanced: "Продвинутый",
-    fluent: "Свободный",
-    "0-6m": "0-6 мес",
-    "6m-1y": "6 мес-1 год",
-    "1y-3y": "1 год-3 год",
-    "3y+": "3 год+",
+    beginner: findUser.language == "uz" ? "Boshlang‘ich" : "Начальный",
+    middle: findUser.language == "uz" ? "O‘rtacha" : "Средний",
+    advanced: findUser.language == "uz" ? "Yuqori" : "Продвинутый",
+    fluent: findUser.language == "uz" ? "Erkin" : "Свободный",
+    "0-6m": findUser.language == "uz" ? "0-6oy" : "0-6 мес",
+    "6m-1y": findUser.language == "uz" ? "6oy-1yil" : "6 мес-1 год",
+    "1y-3y": findUser.language == "uz" ? "1yil-3yil" : "1 год-3 год",
+    "3y+": findUser.language == "uz" ? "3yil+" : "3 год+",
   };
   await Users.findByIdAndUpdate(
     findUser._id,
     {
       $set: {
-        photo: publicUrl,
+        image: publicUrl,
+        // photo: "asdftgg",
         action: "preview_data",
       },
     },
@@ -828,7 +1133,7 @@ const saveDate = async (msg) => {
 
   if (text == "Yuborish" || text == "Отправить") {
     user.action = "choose_vacancy";
-    user.was_born = text;
+    // user.was_born = text;
 
     await Users.findByIdAndUpdate(user._id, user, { new: true });
 
@@ -915,4 +1220,7 @@ module.exports = {
   changeLanguage,
   logOut,
   addAddress,
+  addUzbekAudio,
+  addRussianAudio,
+  addEnglishAudio,
 };
